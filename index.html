@@ -1,0 +1,990 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VECTOR LAB — Inside the Language Model</title>
+    
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+    
+    <!-- Three.js & Controls -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+    <style>
+        /* === CSS Variables & Base Theme === */
+        :root {
+            --bg: #09090b;
+            --bg-panel: #18181b;
+            --bg-panel-hover: #27272a;
+            --border: #3f3f46;
+            --text-main: #f4f4f5;
+            --text-muted: #a1a1aa;
+            
+            --accent-violet: #8b5cf6;
+            --accent-cyan: #06b6d4;
+            --accent-blue: #3b82f6;
+            --accent-green: #10b981;
+            --accent-red: #ef4444;
+            
+            --font-sans: 'Inter', sans-serif;
+            --font-mono: 'Fira Code', monospace;
+            
+            --radius: 6px;
+            --transition: all 0.2s ease;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        
+        body {
+            background-color: var(--bg);
+            color: var(--text-main);
+            font-family: var(--font-sans);
+            line-height: 1.6;
+            overflow-x: hidden;
+            scroll-behavior: smooth;
+        }
+
+        h1, h2, h3, h4 { font-weight: 600; letter-spacing: -0.02em; }
+        h1 { font-size: 3rem; margin-bottom: 1rem; }
+        h2 { font-size: 1.8rem; margin-bottom: 1.5rem; color: var(--text-main); border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; }
+        h3 { font-size: 1.2rem; margin-bottom: 1rem; color: var(--accent-cyan); }
+        
+        p { color: var(--text-muted); margin-bottom: 1rem; }
+        code { font-family: var(--font-mono); font-size: 0.9em; background: rgba(255,255,255,0.05); padding: 0.2rem 0.4rem; border-radius: 4px; color: var(--accent-violet); }
+        
+        /* === Layout & Containers === */
+        .container { max-width: 1400px; margin: 0 auto; padding: 0 2rem; }
+        section { padding: 5rem 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
+        
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; }
+        .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.5rem; }
+        
+        .panel {
+            background: var(--bg-panel);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 1.5rem;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+        }
+
+        /* === UI Elements === */
+        button {
+            background: var(--bg-panel); color: var(--text-main);
+            border: 1px solid var(--border); border-radius: var(--radius);
+            padding: 0.6rem 1.2rem; font-family: var(--font-sans); font-weight: 500;
+            cursor: pointer; transition: var(--transition);
+        }
+        button:hover { background: var(--bg-panel-hover); border-color: var(--accent-cyan); }
+        button.primary { background: var(--accent-violet); border-color: var(--accent-violet); color: white; }
+        button.primary:hover { background: #7c3aed; }
+        
+        input, select, textarea {
+            background: #000; color: var(--text-main);
+            border: 1px solid var(--border); border-radius: var(--radius);
+            padding: 0.6rem; font-family: var(--font-mono); font-size: 0.9rem;
+            width: 100%; transition: var(--transition);
+        }
+        input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent-cyan); }
+        
+        table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+        th, td { padding: 0.75rem; text-align: left; border-bottom: 1px solid var(--border); }
+        th { color: var(--text-muted); font-weight: 500; position: sticky; top: 0; background: var(--bg-panel); }
+        td.mono { font-family: var(--font-mono); color: var(--accent-cyan); }
+
+        /* === Hero Section === */
+        #hero { text-align: center; padding: 8rem 0 6rem; position: relative; overflow: hidden; }
+        #hero::before {
+            content: ''; position: absolute; top: -50%; left: 50%; transform: translateX(-50%);
+            width: 800px; height: 800px; background: radial-gradient(circle, rgba(139,92,246,0.15) 0%, rgba(0,0,0,0) 70%); z-index: -1;
+        }
+        .status-badge {
+            display: inline-block; font-family: var(--font-mono); font-size: 0.8rem;
+            padding: 0.4rem 0.8rem; border-radius: 20px; border: 1px solid var(--accent-violet);
+            color: var(--accent-violet); margin-bottom: 2rem; background: rgba(139,92,246,0.1);
+        }
+        
+        /* === Pipeline Explorer === */
+        .pipeline-track { display: flex; align-items: center; justify-content: space-between; margin: 3rem 0; overflow-x: auto; padding-bottom: 1rem; }
+        .pipeline-node {
+            flex: 1; min-width: 120px; text-align: center; padding: 1rem;
+            background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--radius);
+            cursor: pointer; transition: var(--transition); position: relative;
+        }
+        .pipeline-node:hover, .pipeline-node.active { border-color: var(--accent-cyan); background: rgba(6, 182, 212, 0.05); }
+        .pipeline-arrow { color: var(--border); font-size: 1.5rem; margin: 0 1rem; }
+        
+        /* === Tokenizer Playground === */
+        .token-output { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 1rem; min-height: 100px; align-content: flex-start; }
+        .token-block {
+            background: rgba(255,255,255,0.05); border: 1px solid var(--border);
+            border-radius: 4px; padding: 0.4rem 0.6rem; text-align: center; cursor: pointer;
+            transition: var(--transition);
+        }
+        .token-block:hover { transform: translateY(-2px); border-color: var(--accent-violet); }
+        .token-text { font-family: var(--font-mono); font-weight: 500; margin-bottom: 0.2rem; }
+        .token-id { font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-muted); }
+        .token-known { border-bottom: 2px solid var(--accent-blue); }
+        .token-unknown { border-bottom: 2px solid var(--accent-red); }
+
+        /* === 3D Explorer === */
+        #three-container { width: 100%; height: 600px; background: #000; border: 1px solid var(--border); border-radius: var(--radius); position: relative; overflow: hidden; }
+        .label3d {
+            position: absolute; color: white; font-family: var(--font-mono); font-size: 12px;
+            pointer-events: none; transform: translate(-50%, -50%); text-shadow: 0 1px 2px #000;
+            background: rgba(0,0,0,0.6); padding: 2px 4px; border-radius: 3px; border: 1px solid rgba(255,255,255,0.1);
+        }
+        .overlay-ui { position: absolute; top: 1rem; right: 1rem; width: 300px; background: rgba(24, 24, 27, 0.9); backdrop-filter: blur(4px); border: 1px solid var(--border); padding: 1rem; border-radius: var(--radius); z-index: 10; }
+
+        /* === Utilities & Small Components === */
+        .metric-card { background: rgba(0,0,0,0.3); border: 1px solid var(--border); padding: 1rem; border-radius: var(--radius); text-align: center; }
+        .metric-value { font-family: var(--font-mono); font-size: 1.5rem; color: var(--accent-cyan); margin-top: 0.5rem; }
+        .flex-between { display: flex; justify-content: space-between; align-items: center; }
+        .vector-bar-container { display: flex; gap: 2px; height: 60px; align-items: flex-end; margin-top: 1rem; }
+        .vector-bar { flex: 1; background: var(--accent-violet); transition: height 0.3s; min-height: 1px; }
+        .vector-bar.negative { background: var(--accent-red); align-self: flex-start; }
+        
+        .tooltip { font-size: 0.8rem; background: var(--border); padding: 0.2rem 0.4rem; border-radius: 3px; cursor: help; border-bottom: 1px dotted var(--text-muted); }
+    </style>
+</head>
+<body>
+
+    <!-- SECTION 01: Hero -->
+    <section id="hero">
+        <div class="container">
+            <div class="status-badge">VECTOR LAB / INTERACTIVE ENVIRONMENT</div>
+            <h1>Inside the Language Model</h1>
+            <p style="font-size: 1.2rem; max-width: 600px; margin: 0 auto 2rem;">
+                From raw text to numerical meaning. Explore how machines tokenize, represent, and understand language in high-dimensional space.
+            </p>
+            <div style="display: flex; justify-content: center; gap: 1rem;">
+                <button class="primary" onclick="document.getElementById('pipeline').scrollIntoView()">Launch Playground</button>
+                <button onclick="document.getElementById('3d-explorer').scrollIntoView()">Explore 3D Vector Space</button>
+            </div>
+        </div>
+    </section>
+
+    <!-- SECTION 02: Pipeline Explorer -->
+    <section id="pipeline">
+        <div class="container">
+            <h2>LLM Pipeline Explorer</h2>
+            <p>Click on each stage to understand how raw text is transformed into machine-readable tensors.</p>
+            
+            <div class="pipeline-track">
+                <div class="pipeline-node active" onclick="showPipelineStage(0)">1. Text Input</div>
+                <div class="pipeline-arrow">→</div>
+                <div class="pipeline-node" onclick="showPipelineStage(1)">2. Tokenizer</div>
+                <div class="pipeline-arrow">→</div>
+                <div class="pipeline-node" onclick="showPipelineStage(2)">3. Token IDs</div>
+                <div class="pipeline-arrow">→</div>
+                <div class="pipeline-node" onclick="showPipelineStage(3)">4. Embedding</div>
+                <div class="pipeline-arrow">→</div>
+                <div class="pipeline-node" onclick="showPipelineStage(4)">5. Positional<br>Encoding</div>
+                <div class="pipeline-arrow">→</div>
+                <div class="pipeline-node" onclick="showPipelineStage(5)">6. Vector<br>Space</div>
+            </div>
+
+            <div class="panel" id="pipeline-details">
+                <h3 id="pipe-title">1. Text Input</h3>
+                <p id="pipe-desc">The raw string of characters provided by the user. Language models do not read text directly; they process numbers. This is the starting point.</p>
+                <div style="margin-top: 1rem; padding: 1rem; background: #000; border-radius: var(--radius); font-family: var(--font-mono);">
+                    <span style="color: var(--text-muted)">Input:</span> <span id="pipe-io">"The quick brown fox"</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- SECTION 03: Vocabulary Builder -->
+    <section id="vocabulary">
+        <div class="container">
+            <h2>Vocabulary Builder</h2>
+            <p>A vocabulary maps distinct subwords or words to unique integer IDs. LLMs have fixed-size vocabularies (e.g., 50,257 for GPT-2).</p>
+            
+            <div class="grid-2">
+                <div class="panel">
+                    <h3>Add Tokens</h3>
+                    <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
+                        <input type="text" id="vocab-input" placeholder="Enter word or token..." onkeypress="if(event.key==='Enter') addVocab()">
+                        <button class="primary" onclick="addVocab()">Add</button>
+                    </div>
+                    <textarea id="vocab-bulk" rows="3" placeholder="Paste comma-separated words for bulk import..."></textarea>
+                    <button style="margin-top: 0.5rem;" onclick="bulkAddVocab()">Bulk Import</button>
+                    <hr style="border:0; border-top: 1px solid var(--border); margin: 1.5rem 0;">
+                    <div class="flex-between">
+                        <span>Total Vocabulary Size: <strong id="vocab-size" style="color: var(--accent-cyan)">0</strong></span>
+                        <button onclick="resetVocab()">Reset to Defaults</button>
+                    </div>
+                </div>
+                
+                <div class="panel" style="max-height: 400px; overflow-y: auto;">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Token ID</th>
+                                <th>Token Text</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="vocab-table-body">
+                            <!-- Populated by JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- SECTION 04: Tokenization Playground -->
+    <section id="tokenization">
+        <div class="container">
+            <h2>Tokenization Playground</h2>
+            <p>Observe how different strategies split text. Unknown tokens (not in vocabulary) are often split further or assigned an [UNK] ID. <span class="tooltip" title="We use a simplified strict matching for demonstration.">Note</span></p>
+            
+            <div class="panel">
+                <div class="flex-between" style="margin-bottom: 1rem;">
+                    <select id="tokenize-strategy" style="width: 200px;">
+                        <option value="word">Word-level</option>
+                        <option value="char">Character-level</option>
+                    </select>
+                    <div>
+                        <button onclick="document.getElementById('tok-input').value = 'the cat sat on the mat'; runTokenization();">Sample 1</button>
+                        <button onclick="document.getElementById('tok-input').value = 'machine learning is artificial intelligence'; runTokenization();">Sample 2</button>
+                    </div>
+                </div>
+                <textarea id="tok-input" rows="3" placeholder="Type a sentence here...">the cat sat on the mat</textarea>
+                <div style="margin-top: 1rem;">
+                    <button class="primary" onclick="runTokenization()">Tokenize</button>
+                </div>
+                
+                <div id="tok-output" class="token-output">
+                    <!-- Populated by JS -->
+                </div>
+                
+                <div class="grid-2" style="margin-top: 2rem;">
+                    <div class="metric-card">
+                        <div>Total Tokens</div>
+                        <div class="metric-value" id="tok-count">0</div>
+                    </div>
+                    <div class="metric-card">
+                        <div>Character Count</div>
+                        <div class="metric-value" id="char-count">0</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- SECTION 05: Embedding Generator -->
+    <section id="embedding">
+        <div class="container">
+            <h2>Simulated Embedding Engine</h2>
+            <p>Embeddings convert token IDs into dense numerical vectors, capturing semantic meaning. <br><em style="color: var(--text-muted); font-size: 0.9em;">(Note: Actual LLMs learn these via backpropagation. We use deterministic pseudo-random vectors with predefined semantic clusters for demonstration).</em></p>
+            
+            <div class="panel">
+                <div class="flex-between">
+                    <div style="display: flex; gap: 1rem; align-items: center;">
+                        <select id="embed-select" style="width: 200px;" onchange="renderEmbeddingView()">
+                            <!-- Options populated by JS -->
+                        </select>
+                        <span>Dimensions: 
+                            <select id="embed-dim" style="width: 80px; display: inline-block;" onchange="state.dim = parseInt(this.value); generateAllVectors(); renderEmbeddingView(); update3DScene();">
+                                <option value="8">8</option>
+                                <option value="16">16</option>
+                                <option value="32">32</option>
+                                <option value="64" selected>64</option>
+                            </select>
+                        </span>
+                    </div>
+                </div>
+
+                <div style="margin-top: 2rem;">
+                    <h4 id="embed-word-title" style="color: var(--accent-cyan); font-family: var(--font-mono);">[Select a word]</h4>
+                    <div class="vector-bar-container" id="embed-bars">
+                        <!-- Bars populated by JS -->
+                    </div>
+                    <div style="margin-top: 1rem; background: #000; padding: 1rem; border-radius: var(--radius); max-height: 150px; overflow-y: auto; font-family: var(--font-mono); font-size: 0.85rem; color: var(--text-muted); word-wrap: break-word;" id="embed-raw">
+                        [Raw Vector Values]
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- SECTION 06: 3D Embedding Space Explorer -->
+    <section id="3d-explorer" style="padding-bottom: 0;">
+        <div class="container" style="max-width: 100%;">
+            <div style="max-width: 1400px; margin: 0 auto; padding: 0 2rem;">
+                <h2>3D Embedding Space</h2>
+                <p>Visualizing high-dimensional vectors projected into 3D space. Words with similar meanings cluster together. Drag to rotate, scroll to zoom.</p>
+            </div>
+            
+            <div id="three-container">
+                <div class="overlay-ui">
+                    <h3 style="margin-bottom: 1rem;">Interaction Panel</h3>
+                    <div id="ui-selected-word" style="font-family: var(--font-mono); color: var(--accent-violet); font-size: 1.2rem; margin-bottom: 0.5rem;">None Selected</div>
+                    <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">Click points in the 3D space to inspect.</div>
+                    
+                    <button style="width: 100%; margin-bottom: 0.5rem;" onclick="resetCamera()">Reset Camera</button>
+                    <button style="width: 100%;" onclick="toggleLabels()">Toggle Labels</button>
+                </div>
+                <!-- Three.js Canvas appended here -->
+                <div id="labels-container"></div>
+            </div>
+        </div>
+    </section>
+
+    <!-- SECTION 07: Similarity & Distance Lab -->
+    <section id="similarity">
+        <div class="container">
+            <h2>Similarity & Distance Lab</h2>
+            <p>Mathematics of meaning. Compare the geometric relationship between any two vectors in the space.</p>
+            
+            <div class="panel">
+                <div class="grid-2">
+                    <div>
+                        <label>Word A:</label>
+                        <select id="sim-word-a" onchange="calculateSimilarity()"></select>
+                    </div>
+                    <div>
+                        <label>Word B:</label>
+                        <select id="sim-word-b" onchange="calculateSimilarity()"></select>
+                    </div>
+                </div>
+
+                <div class="grid-3" style="margin-top: 2rem;">
+                    <div class="metric-card">
+                        <div>Cosine Similarity</div>
+                        <div class="metric-value" id="sim-cosine">0.000</div>
+                        <div style="font-size: 0.8rem; margin-top: 0.5rem;"><code>cos(θ) = (A·B) / (||A||×||B||)</code></div>
+                    </div>
+                    <div class="metric-card">
+                        <div>Euclidean Distance</div>
+                        <div class="metric-value" id="sim-euclid">0.000</div>
+                        <div style="font-size: 0.8rem; margin-top: 0.5rem;"><code>d = √Σ(Aᵢ - Bᵢ)²</code></div>
+                    </div>
+                    <div class="metric-card">
+                        <div>Dot Product</div>
+                        <div class="metric-value" id="sim-dot">0.000</div>
+                        <div style="font-size: 0.8rem; margin-top: 0.5rem;"><code>A · B = Σ(Aᵢ × Bᵢ)</code></div>
+                    </div>
+                </div>
+                
+                <div style="margin-top: 2rem;">
+                    <label>Cosine Similarity Scale (-1 to 1)</label>
+                    <div style="width: 100%; height: 20px; background: linear-gradient(90deg, var(--accent-red), #555, var(--accent-green)); border-radius: 10px; position: relative; margin-top: 0.5rem;">
+                        <div id="sim-marker" style="position: absolute; width: 4px; height: 30px; background: white; top: -5px; left: 50%; transform: translateX(-50%); box-shadow: 0 0 5px black; transition: left 0.3s;"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- SECTION 08: Pipeline Simulator -->
+    <section id="simulator">
+        <div class="container">
+            <h2>End-to-End Pipeline Simulator</h2>
+            <p>Run the full transformation process step-by-step.</p>
+            
+            <div class="panel">
+                <div style="display: flex; gap: 1rem; margin-bottom: 1rem;">
+                    <input type="text" id="sim-input" value="The artificial neural network learns" style="flex: 1;">
+                    <button class="primary" onclick="runSimulation()">Run Simulation</button>
+                </div>
+                
+                <div id="sim-canvas" style="background: #000; border: 1px solid var(--border); border-radius: var(--radius); padding: 2rem; min-height: 300px; position: relative; font-family: var(--font-mono);">
+                    <div style="text-align: center; color: var(--text-muted); margin-top: 5rem;">Enter text and click Run to visualize the matrix transformations.</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- JavaScript Application Logic -->
+    <script>
+        /**
+         * VECTOR LAB - Application State & Core Logic
+         */
+        
+        // --- 1. Global State ---
+        const state = {
+            vocab: [],
+            wordToId: {},
+            idToWord: {},
+            nextId: 1000,
+            dim: 64,
+            vectors: {}, // word -> Float32Array
+            
+            // Default Semantic Anchors (to ensure meaningful clustering in 3D projection)
+            // We encode primary semantic axes in dimensions 0, 1, 2.
+            anchors: {
+                "king":       [0.8, 0.5, 0.2],
+                "queen":      [0.8, 0.5, -0.2],
+                "man":        [0.6, 0.3, 0.2],
+                "woman":      [0.6, 0.3, -0.2],
+                "boy":        [0.5, 0.1, 0.2],
+                "girl":       [0.5, 0.1, -0.2],
+                "dog":        [-0.5, 0.7, 0.1],
+                "cat":        [-0.4, 0.8, 0.2],
+                "animal":     [-0.3, 0.9, 0.15],
+                "apple":      [0.1, -0.7, 0.8],
+                "orange":     [0.1, -0.6, 0.9],
+                "fruit":      [0.15, -0.8, 0.85],
+                "machine":    [-0.8, -0.6, -0.6],
+                "learning":   [-0.7, -0.7, -0.5],
+                "intelligence":[-0.9, -0.8, -0.4],
+                "artificial": [-0.85, -0.7, -0.7],
+                "neural":     [-0.75, -0.65, -0.55],
+                "network":    [-0.7, -0.6, -0.6],
+                "the":        [0, 0, 0],
+                "a":          [0, 0, 0],
+                "is":         [0, 0, 0],
+                "on":         [0, 0, 0]
+            }
+        };
+
+        const defaultVocab = ["the", "cat", "sat", "on", "mat", "dog", "runs", "machine", "learning", "intelligence", "artificial", "language", "model", "neural", "network", "transformer", "king", "queen", "man", "woman", "apple", "orange", "a", "is", "boy", "girl", "animal", "fruit"];
+
+        // --- 2. Math & Seeded PRNG ---
+        // Simple hash function for strings
+        function hashString(str) {
+            let hash = 0;
+            for (let i = 0; i < str.length; i++) {
+                hash = ((hash << 5) - hash) + str.charCodeAt(i);
+                hash |= 0; 
+            }
+            return hash;
+        }
+
+        // Mulberry32 PRNG
+        function seededRandom(a) {
+            let t = a += 0x6D2B79F5;
+            t = Math.imul(t ^ t >>> 15, t | 1);
+            t ^= t + Math.imul(t ^ t >>> 7, t | 61);
+            return ((t ^ t >>> 14) >>> 0) / 4294967296;
+        }
+
+        function generateVectorForWord(word, dim) {
+            const vec = new Float32Array(dim);
+            const w = word.toLowerCase();
+            const seedBase = hashString(w);
+            
+            // If it's a known semantic anchor, use its base for dims 0,1,2, add tiny noise
+            if (state.anchors[w]) {
+                const anchor = state.anchors[w];
+                for (let i = 0; i < dim; i++) {
+                    if (i < 3) {
+                        vec[i] = anchor[i] + (seededRandom(seedBase + i) - 0.5) * 0.1; // base + noise
+                    } else {
+                        vec[i] = (seededRandom(seedBase + i) * 2) - 1; // random [-1, 1]
+                    }
+                }
+            } else {
+                // Completely random based on seed
+                for (let i = 0; i < dim; i++) {
+                    vec[i] = (seededRandom(seedBase + i) * 2) - 1;
+                }
+            }
+            
+            // Normalize vector to unit length (important for cosine similarity)
+            let mag = 0;
+            for (let i = 0; i < dim; i++) mag += vec[i] * vec[i];
+            mag = Math.sqrt(mag);
+            if (mag > 0) {
+                for (let i = 0; i < dim; i++) vec[i] /= mag;
+            }
+            
+            return vec;
+        }
+
+        function generateAllVectors() {
+            state.vectors = {};
+            state.vocab.forEach(word => {
+                state.vectors[word] = generateVectorForWord(word, state.dim);
+            });
+        }
+
+        // Vector Math
+        function dotProduct(a, b) {
+            return a.reduce((sum, val, i) => sum + val * b[i], 0);
+        }
+        function magnitude(a) {
+            return Math.sqrt(a.reduce((sum, val) => sum + val * val, 0));
+        }
+        function cosineSimilarity(a, b) {
+            const magA = magnitude(a);
+            const magB = magnitude(b);
+            if (magA === 0 || magB === 0) return 0;
+            return dotProduct(a, b) / (magA * magB);
+        }
+        function euclideanDistance(a, b) {
+            return Math.sqrt(a.reduce((sum, val, i) => sum + Math.pow(val - b[i], 2), 0));
+        }
+
+        // --- 3. UI Updates & State Management ---
+        function initApp() {
+            resetVocab();
+            initThreeJS();
+            // Select first word for embeddings
+            if(state.vocab.length > 0) {
+                document.getElementById('embed-select').value = state.vocab[0];
+                renderEmbeddingView();
+            }
+        }
+
+        function resetVocab() {
+            state.vocab = [];
+            state.wordToId = {};
+            state.idToWord = {};
+            state.nextId = 1000;
+            
+            defaultVocab.forEach(w => _addSingleWord(w));
+            
+            updateVocabUI();
+            generateAllVectors();
+            updateDropdowns();
+            update3DScene();
+        }
+
+        function _addSingleWord(word) {
+            const w = word.trim().toLowerCase();
+            if (!w || state.wordToId[w]) return false;
+            
+            state.vocab.push(w);
+            state.wordToId[w] = state.nextId;
+            state.idToWord[state.nextId] = w;
+            state.nextId++;
+            return true;
+        }
+
+        function addVocab() {
+            const input = document.getElementById('vocab-input');
+            if (_addSingleWord(input.value)) {
+                postVocabUpdate();
+                input.value = '';
+            }
+        }
+
+        function bulkAddVocab() {
+            const input = document.getElementById('vocab-bulk');
+            const words = input.value.split(',').map(w => w.trim());
+            let added = false;
+            words.forEach(w => {
+                if (_addSingleWord(w)) added = true;
+            });
+            if (added) {
+                postVocabUpdate();
+                input.value = '';
+            }
+        }
+
+        function removeVocab(word) {
+            const id = state.wordToId[word];
+            delete state.wordToId[word];
+            delete state.idToWord[id];
+            state.vocab = state.vocab.filter(w => w !== word);
+            postVocabUpdate();
+        }
+
+        function postVocabUpdate() {
+            generateAllVectors();
+            updateVocabUI();
+            updateDropdowns();
+            update3DScene();
+        }
+
+        function updateVocabUI() {
+            document.getElementById('vocab-size').innerText = state.vocab.length;
+            const tbody = document.getElementById('vocab-table-body');
+            tbody.innerHTML = '';
+            
+            // Sort alphabetically for display
+            const sorted = [...state.vocab].sort();
+            
+            sorted.forEach(w => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td class="mono">${state.wordToId[w]}</td>
+                    <td>${w}</td>
+                    <td><button style="padding: 0.2rem 0.5rem; font-size: 0.8rem;" onclick="removeVocab('${w}')">Remove</button></td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function updateDropdowns() {
+            const selects = ['embed-select', 'sim-word-a', 'sim-word-b'];
+            const sorted = [...state.vocab].sort();
+            
+            selects.forEach(id => {
+                const el = document.getElementById(id);
+                if(!el) return;
+                const currentVal = el.value;
+                el.innerHTML = sorted.map(w => `<option value="${w}">${w}</option>`).join('');
+                if (sorted.includes(currentVal)) el.value = currentVal;
+            });
+            calculateSimilarity();
+        }
+
+        // --- 4. Pipeline Logic ---
+        const pipelineStages = [
+            { title: "1. Text Input", desc: "Raw sequence of characters. Before a model can understand meaning, it must parse the string.", io: `"The quick brown fox"` },
+            { title: "2. Tokenizer", desc: "Splits text into known chunks (words or subwords) defined in the vocabulary.", io: `["The", "quick", "brown", "fox"]` },
+            { title: "3. Token IDs", desc: "Maps text tokens to integer IDs. The model's actual input is a tensor of these integers.", io: `[1014, 5293, 2031, 840]` },
+            { title: "4. Embedding", desc: "Looks up the dense continuous vector (embedding) for each token ID. This gives tokens spatial geometry.", io: `[[0.2, -0.4...], [0.8, 0.1...]]` },
+            { title: "5. Positional Encoding", desc: "Adds position vectors to the embeddings so the model knows the order of tokens, since self-attention is naturally order-invariant.", io: `Embedding + sin/cos position vectors` },
+            { title: "6. Vector Space", desc: "The final numerical representation fed into the Transformer blocks, existing in a high-dimensional space.", io: `Final Input Tensor (Sequence Length × Dimension)` }
+        ];
+
+        function showPipelineStage(idx) {
+            document.querySelectorAll('.pipeline-node').forEach((n, i) => {
+                n.className = i === idx ? 'pipeline-node active' : 'pipeline-node';
+            });
+            document.getElementById('pipe-title').innerText = pipelineStages[idx].title;
+            document.getElementById('pipe-desc').innerText = pipelineStages[idx].desc;
+            document.getElementById('pipe-io').innerText = pipelineStages[idx].io;
+        }
+
+        // --- 5. Tokenizer Logic ---
+        function runTokenization() {
+            const text = document.getElementById('tok-input').value.trim();
+            const strategy = document.getElementById('tokenize-strategy').value;
+            const outContainer = document.getElementById('tok-output');
+            outContainer.innerHTML = '';
+            
+            if(!text) return;
+
+            let tokens = [];
+            if (strategy === 'word') {
+                // Simple word split keeping punctuation separate
+                const rawTokens = text.match(/\w+|[^\w\s]/g) || [];
+                tokens = rawTokens.map(t => t.toLowerCase());
+            } else if (strategy === 'char') {
+                tokens = text.split('').filter(c => c.trim() !== '').map(c => c.toLowerCase());
+            }
+
+            document.getElementById('tok-count').innerText = tokens.length;
+            document.getElementById('char-count').innerText = text.length;
+
+            tokens.forEach(t => {
+                const isKnown = state.wordToId[t] !== undefined;
+                const id = isKnown ? state.wordToId[t] : '[UNK]';
+                
+                const block = document.createElement('div');
+                block.className = `token-block ${isKnown ? 'token-known' : 'token-unknown'}`;
+                block.innerHTML = `
+                    <div class="token-text">${t}</div>
+                    <div class="token-id">${id}</div>
+                `;
+                outContainer.appendChild(block);
+            });
+        }
+
+        // --- 6. Embedding View Logic ---
+        function renderEmbeddingView() {
+            const word = document.getElementById('embed-select').value;
+            if(!word || !state.vectors[word]) return;
+            
+            const vec = state.vectors[word];
+            document.getElementById('embed-word-title').innerText = `Vector for "${word}" (ID: ${state.wordToId[word]})`;
+            
+            const bars = document.getElementById('embed-bars');
+            bars.innerHTML = '';
+            
+            // Show up to 64 dims visually
+            const visualDims = Math.min(vec.length, 64);
+            for(let i=0; i<visualDims; i++) {
+                const val = vec[i];
+                const bar = document.createElement('div');
+                bar.className = 'vector-bar' + (val < 0 ? ' negative' : '');
+                // scale magnitude for height, max val is roughly 1
+                const height = Math.min(Math.abs(val) * 100, 100) + 2; 
+                bar.style.height = `${height}%`;
+                bar.title = `Dim ${i}: ${val.toFixed(4)}`;
+                bars.appendChild(bar);
+            }
+            
+            document.getElementById('embed-raw').innerText = `[${Array.from(vec).map(v => v.toFixed(4)).join(', ')}]`;
+        }
+
+        // --- 7. Three.js 3D Explorer ---
+        let scene, camera, renderer, controls, pointsGroup;
+        let raycaster, mouse;
+        const labels = []; // { element, position }
+
+        function initThreeJS() {
+            const container = document.getElementById('three-container');
+            
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x000000);
+            
+            // Grid and Axes
+            const gridHelper = new THREE.GridHelper(4, 20, 0x333333, 0x222222);
+            scene.add(gridHelper);
+            const axesHelper = new THREE.AxesHelper(2);
+            scene.add(axesHelper);
+
+            camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 100);
+            camera.position.set(3, 2, 3);
+            
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(container.clientWidth, container.clientHeight);
+            container.appendChild(renderer.domElement);
+            
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+
+            pointsGroup = new THREE.Group();
+            scene.add(pointsGroup);
+            
+            raycaster = new THREE.Raycaster();
+            mouse = new THREE.Vector2();
+
+            // Handle Resize
+            window.addEventListener('resize', () => {
+                camera.aspect = container.clientWidth / container.clientHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(container.clientWidth, container.clientHeight);
+            });
+
+            // Click interaction
+            container.addEventListener('click', onMouseClick, false);
+
+            animate();
+        }
+
+        function update3DScene() {
+            if(!scene) return;
+            
+            // Clear existing
+            while(pointsGroup.children.length > 0){ 
+                pointsGroup.remove(pointsGroup.children[0]); 
+            }
+            const labelsContainer = document.getElementById('labels-container');
+            labelsContainer.innerHTML = '';
+            labels.length = 0;
+
+            const geometry = new THREE.SphereGeometry(0.04, 16, 16);
+
+            state.vocab.forEach(word => {
+                const vec = state.vectors[word];
+                if(!vec) return;
+                
+                // For 3D projection, we literally just take the first 3 dimensions.
+                // Because we engineered the semantic anchors to use dims 0,1,2, this perfectly preserves primary semantic geometry.
+                const x = vec[0] * 2; // scale up slightly for visibility
+                const y = vec[1] * 2;
+                const z = (vec[2] || 0) * 2;
+
+                // Color based on position to look cool
+                const color = new THREE.Color();
+                color.setHSL((x+2)/4, 0.8, 0.5);
+
+                const material = new THREE.MeshBasicMaterial({ color: color });
+                const mesh = new THREE.Mesh(geometry, material);
+                mesh.position.set(x, y, z);
+                mesh.userData = { word: word, id: state.wordToId[word] };
+                
+                pointsGroup.add(mesh);
+
+                // Create HTML Label
+                const label = document.createElement('div');
+                label.className = 'label3d';
+                label.innerText = word;
+                labelsContainer.appendChild(label);
+                
+                labels.push({
+                    element: label,
+                    pos: new THREE.Vector3(x, y + 0.1, z)
+                });
+            });
+        }
+
+        function onMouseClick(event) {
+            const container = document.getElementById('three-container');
+            const rect = container.getBoundingClientRect();
+            
+            mouse.x = ((event.clientX - rect.left) / container.clientWidth) * 2 - 1;
+            mouse.y = -((event.clientY - rect.top) / container.clientHeight) * 2 + 1;
+            
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(pointsGroup.children);
+            
+            if (intersects.length > 0) {
+                const obj = intersects[0].object;
+                const w = obj.userData.word;
+                document.getElementById('ui-selected-word').innerText = `${w} (ID: ${obj.userData.id})`;
+                
+                // Highlight point
+                pointsGroup.children.forEach(c => c.scale.set(1,1,1));
+                obj.scale.set(2,2,2);
+            }
+        }
+
+        function resetCamera() {
+            camera.position.set(3, 2, 3);
+            controls.target.set(0, 0, 0);
+        }
+        
+        let showLabels = true;
+        function toggleLabels() {
+            showLabels = !showLabels;
+            document.getElementById('labels-container').style.display = showLabels ? 'block' : 'none';
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            
+            // Update labels position
+            if (showLabels) {
+                const container = document.getElementById('three-container');
+                const hw = container.clientWidth / 2;
+                const hh = container.clientHeight / 2;
+                
+                labels.forEach(l => {
+                    const vector = l.pos.clone();
+                    vector.project(camera);
+                    
+                    // Only show if in front of camera
+                    if (vector.z < 1) {
+                        l.element.style.display = 'block';
+                        const x = (vector.x * hw) + hw;
+                        const y = -(vector.y * hh) + hh;
+                        l.element.style.left = `${x}px`;
+                        l.element.style.top = `${y}px`;
+                    } else {
+                        l.element.style.display = 'none';
+                    }
+                });
+            }
+            
+            renderer.render(scene, camera);
+        }
+
+        // --- 8. Similarity Lab ---
+        function calculateSimilarity() {
+            const wa = document.getElementById('sim-word-a').value;
+            const wb = document.getElementById('sim-word-b').value;
+            
+            if(!wa || !wb || !state.vectors[wa] || !state.vectors[wb]) return;
+            
+            const va = state.vectors[wa];
+            const vb = state.vectors[wb];
+            
+            const cosSim = cosineSimilarity(va, vb);
+            const eucDist = euclideanDistance(va, vb);
+            const dot = dotProduct(va, vb);
+            
+            document.getElementById('sim-cosine').innerText = cosSim.toFixed(4);
+            document.getElementById('sim-euclid').innerText = eucDist.toFixed(4);
+            document.getElementById('sim-dot').innerText = dot.toFixed(4);
+            
+            // Update scale marker (-1 to 1 maps to 0% to 100%)
+            const percent = ((cosSim + 1) / 2) * 100;
+            document.getElementById('sim-marker').style.left = `${percent}%`;
+        }
+
+        // --- 9. Pipeline Simulator ---
+        async function runSimulation() {
+            const input = document.getElementById('sim-input').value.trim();
+            const canvas = document.getElementById('sim-canvas');
+            if(!input) return;
+            
+            // Helpers
+            const sleep = ms => new Promise(r => setTimeout(r, ms));
+            const log = (msg, color='var(--text-main)') => {
+                const d = document.createElement('div');
+                d.style.color = color;
+                d.style.marginBottom = '0.5rem';
+                d.innerHTML = msg;
+                canvas.appendChild(d);
+                canvas.scrollTop = canvas.scrollHeight;
+            };
+
+            canvas.innerHTML = '';
+            
+            log(`[STAGE 1] Raw Text Input:`, 'var(--accent-cyan)');
+            log(`> "${input}"\n`);
+            await sleep(1000);
+            
+            log(`[STAGE 2] Tokenization (Word-level fallback):`, 'var(--accent-cyan)');
+            const words = input.toLowerCase().match(/\w+|[^\w\s]/g) || [];
+            log(`> Tokens: [${words.map(w=>`"${w}"`).join(', ')}]\n`);
+            await sleep(1500);
+            
+            log(`[STAGE 3] Vocabulary Lookup (Token IDs):`, 'var(--accent-cyan)');
+            const ids = words.map(w => state.wordToId[w] || 9999); // 9999 for UNK
+            log(`> IDs: [${ids.join(', ')}]\n`);
+            await sleep(1500);
+            
+            log(`[STAGE 4] Embedding Lookup (Dim: ${state.dim}):`, 'var(--accent-cyan)');
+            log(`> Retrieving vectors for sequence...`);
+            const seqVectors = [];
+            words.forEach(w => {
+                const vec = state.vectors[w] || generateVectorForWord(w, state.dim);
+                seqVectors.push(vec);
+            });
+            await sleep(1000);
+            // Display first few dims of first token
+            log(`> Token 0 ("${words[0]}") embedding: [${seqVectors[0].slice(0,4).map(v=>v.toFixed(3)).join(', ')} ...]\n`, 'var(--text-muted)');
+            await sleep(1500);
+
+            log(`[STAGE 5] Positional Encoding:`, 'var(--accent-cyan)');
+            log(`> Adding sine/cosine positional vectors to preserve sequence order...`);
+            
+            // Simple Pos Encoding visualization
+            const finalVectors = [];
+            for(let pos=0; pos<words.length; pos++) {
+                const finalVec = new Float32Array(state.dim);
+                for(let i=0; i<state.dim; i++) {
+                    // standard PE formula: sin/cos(pos / 10000^(2i/d_model))
+                    const val = (i % 2 === 0) 
+                        ? Math.sin(pos / Math.pow(10000, i / state.dim))
+                        : Math.cos(pos / Math.pow(10000, (i-1) / state.dim));
+                    finalVec[i] = seqVectors[pos][i] + val;
+                }
+                finalVectors.push(finalVec);
+            }
+            await sleep(1500);
+            log(`> Token 0 ("${words[0]}") + Pos 0: [${finalVectors[0].slice(0,4).map(v=>v.toFixed(3)).join(', ')} ...]\n`, 'var(--text-muted)');
+            await sleep(1500);
+
+            log(`[STAGE 6] Final Input Tensor:`, 'var(--accent-violet)');
+            log(`> Shape: [Batch Size: 1, Sequence Length: ${words.length}, Embedding Dim: ${state.dim}]`);
+            log(`> Ready for Transformer Self-Attention blocks.`);
+            
+            const matrixContainer = document.createElement('div');
+            matrixContainer.style.marginTop = '1rem';
+            matrixContainer.style.display = 'grid';
+            matrixContainer.style.gridTemplateColumns = `auto repeat(${Math.min(state.dim, 8)}, 1fr) auto`;
+            matrixContainer.style.gap = '2px';
+            matrixContainer.style.fontSize = '0.75rem';
+            matrixContainer.style.opacity = '0.7';
+            
+            // Header
+            matrixContainer.innerHTML += `<div>Token</div>`;
+            for(let i=0; i<Math.min(state.dim, 8); i++) matrixContainer.innerHTML += `<div>D${i}</div>`;
+            matrixContainer.innerHTML += `<div>...</div>`;
+            
+            // Rows
+            words.forEach((w, r) => {
+                matrixContainer.innerHTML += `<div style="color:var(--accent-cyan)">${w}</div>`;
+                for(let i=0; i<Math.min(state.dim, 8); i++) {
+                    const val = finalVectors[r][i].toFixed(2);
+                    const color = val > 0 ? 'var(--accent-green)' : 'var(--accent-red)';
+                    matrixContainer.innerHTML += `<div style="color:${color}">${val}</div>`;
+                }
+                matrixContainer.innerHTML += `<div>...</div>`;
+            });
+            canvas.appendChild(matrixContainer);
+        }
+
+        // Initialize Everything on Load
+        window.onload = initApp;
+
+    </script>
+</body>
+</html>
